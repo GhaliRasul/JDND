@@ -1,9 +1,14 @@
 package com.example.demo.controllers;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
+import com.example.demo.model.persistence.Item;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,8 +25,8 @@ import com.example.demo.model.persistence.repositories.UserRepository;
 @RestController
 @RequestMapping("/api/order")
 public class OrderController {
-	
-	
+
+	private static final Logger log= LoggerFactory.getLogger(OrderController.class);
 	@Autowired
 	private UserRepository userRepository;
 	
@@ -30,22 +35,49 @@ public class OrderController {
 	
 	
 	@PostMapping("/submit/{username}")
-	public ResponseEntity<UserOrder> submit(@PathVariable String username) {
-		User user = userRepository.findByUsername(username);
-		if(user == null) {
+	public ResponseEntity<UserOrder> submit(@PathVariable String username, Authentication authentication) {
+		if(authentication.getName().equals(username)){
+			User user = userRepository.findByUsername(username);
+			if(user == null) {
+				log.error("ERROR - while creating an order. The User {} does not exists. At OrderController->submit", username);
+				return ResponseEntity.notFound().build();
+			}
+			if(user.getCart().getItems().isEmpty())
+			{
+				log.error("ERROR - while creating an order. The user {} owns no items in his cart. At OrderController->submit"
+						, username);
+				return ResponseEntity.notFound().build();
+			}
+			UserOrder order = UserOrder.createFromCart(user.getCart());
+			orderRepository.save(order);
+			log.info(String.format("The order for %s with items %s has been saved", user.getUsername()
+							, order.getItems().stream().map(Item::getName).collect(Collectors.toList())
+							, order.getTotal()
+					)
+			);
+			return ResponseEntity.ok(order);
+		}else {
+			log.error("you are not authenticated");
 			return ResponseEntity.notFound().build();
 		}
-		UserOrder order = UserOrder.createFromCart(user.getCart());
-		orderRepository.save(order);
-		return ResponseEntity.ok(order);
+
 	}
 	
 	@GetMapping("/history/{username}")
-	public ResponseEntity<List<UserOrder>> getOrdersForUser(@PathVariable String username) {
-		User user = userRepository.findByUsername(username);
-		if(user == null) {
+	public ResponseEntity<List<UserOrder>> getOrdersForUser(@PathVariable String username, Authentication authentication) {
+		if(authentication.getName().equals(username)){
+			User user = userRepository.findByUsername(username);
+			if(user == null) {
+				log.error("ERROR - while fetching the order history. The User {} does not exists. At OrderController->getOrdersForUser"
+						, username);
+				return ResponseEntity.notFound().build();
+			}
+			log.info("INFO - history of "+username);
+			return ResponseEntity.ok(orderRepository.findByUser(user));
+		}else {
+			log.error("you are not authenticated");
 			return ResponseEntity.notFound().build();
 		}
-		return ResponseEntity.ok(orderRepository.findByUser(user));
+
 	}
 }
